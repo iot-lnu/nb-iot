@@ -234,26 +234,29 @@ static void controller_task(void *arg)
         {
             if (receivedData != NULL)
             {
-                ESP_LOGI("Controller", "Received data: %s", receivedData);
-
-                // Reset the timer since data was received
-                xTimerReset(timeoutTimer, portMAX_DELAY);
-
-                // If the data contains a OK in the string, send COMMAND_ACTION_NEXT
-                if (strstr((const char *)receivedData, "OK") != NULL)
-                {
-                    send_next_command();
-                }
-                // If the data contains ERROR in the string, send COMMAND_ACTION_RESTART
-                else if (strstr((const char *)receivedData, "ERROR") != NULL)
-                {
-                    // wait for 0.5 seconds before sending the reset command
-                    vTaskDelay(500 / portTICK_PERIOD_MS);
-                    send_reset_command();
-                }
-
-                free(receivedData);
+                continue;
             }
+
+            ESP_LOGI("Controller", "Received data: %s", receivedData);
+
+            // Reset the timer since data was received
+            xTimerReset(timeoutTimer, portMAX_DELAY);
+
+            // If the data contains a OK in the string, send COMMAND_ACTION_NEXT
+            if (strstr((const char *)receivedData, "OK") != NULL)
+            {
+                vTaskDelay(500 / portTICK_PERIOD_MS);
+                send_next_command();
+            }
+            // If the data contains ERROR in the string, send COMMAND_ACTION_RESTART
+            else if (strstr((const char *)receivedData, "ERROR") != NULL)
+            {
+                // wait for 0.5 seconds before sending the reset command
+                vTaskDelay(500 / portTICK_PERIOD_MS);
+                send_reset_command();
+            }
+
+            free(receivedData);
         }
     }
 }
@@ -281,26 +284,23 @@ static void rx_task(void *arg)
             continue;
         }
 
-        if (rxBytes > 0)
+        if (rxBytes < 1)
         {
-            data[rxBytes] = 0; // Null-terminate the received data
+            continue;
+        }
 
-            ESP_LOGI(RX_TASK_TAG, "Read %d bytes: '%s'", rxBytes, data);
+        data[rxBytes] = 0; // Null-terminate the received data
 
-            // Allocate a new buffer for each queue item
-            uint8_t *queueData = (uint8_t *)malloc(rxBytes + 1);
-            if (queueData != NULL)
+        // Allocate a new buffer for each queue item
+        // Fix so we dont malloc every time in the loop ?
+        uint8_t *queueData = (uint8_t *)malloc(rxBytes + 1);
+        if (queueData != NULL)
+        {
+            memcpy(queueData, data, rxBytes + 1); // Copy the data and null-terminator
+            if (xQueueSend(receiveMsgQueue, &queueData, portMAX_DELAY) != pdPASS)
             {
-                memcpy(queueData, data, rxBytes + 1); // Copy the data and null-terminator
-                if (xQueueSend(receiveMsgQueue, &queueData, portMAX_DELAY) != pdPASS)
-                {
-                    ESP_LOGE(RX_TASK_TAG, "Failed to send data to queue");
-                    free(queueData);
-                }
-            }
-            else
-            {
-                ESP_LOGE(RX_TASK_TAG, "Failed to allocate memory for queue data");
+                ESP_LOGE(RX_TASK_TAG, "Failed to send data to queue");
+                free(queueData);
             }
         }
     }
@@ -318,36 +318,29 @@ static void deep_sleep_task(void *args)
     }
 }
 
+esp_err_t init_queues() {
+    sendControlQueue = xQueueCreate(queueLength, sizeof(uint32_t));
+    if (sendControlQueue == NULL) return ESP_FAIL;
+
+    receiveMsgQueue = xQueueCreate(queueLength, sizeof(uint8_t *));
+    if (receiveMsgQueue == NULL) return ESP_FAIL;
+
+    sleepQueue = xQueueCreate(queueLength, sizeof(uint32_t));
+    if (sleepQueue == NULL) return ESP_FAIL;
+
+    dataQueue = xQueueCreate(queueLength, sizeof(uint8_t *));
+    if (dataQueue == NULL) return ESP_FAIL;
+
+    return ESP_OK;
+}
+
 void app_main(void)
 {
     init_uart();
-
-    sendControlQueue = xQueueCreate(queueLength, sizeof(uint32_t));
-    if (sendControlQueue == NULL)
+    if (init_queues() != ESP_OK)
     {
-        ESP_LOGE("APP_MAIN", "Failed to create sendControlQueue");
-        return;
-    }
-
-    receiveMsgQueue = xQueueCreate(queueLength, sizeof(uint8_t *));
-    if (receiveMsgQueue == NULL)
-    {
-        ESP_LOGE("APP_MAIN", "Failed to create receiveMsgQueue");
-        return;
-    }
-
-    sleepQueue = xQueueCreate(queueLength, sizeof(uint32_t));
-    if (sleepQueue == NULL)
-    {
-        ESP_LOGE("APP_MAIN", "Failed to create sleepQueue");
-        return;
-    }
-
-    dataQueue = xQueueCreate(queueLength, sizeof(uint8_t *));
-    if (dataQueue == NULL)
-    {
-        ESP_LOGE("APP_MAIN", "Failed to create dataQueue");
-        return;
+        ESP_LOGE("APP_MAIN", "Queue initialization failed, restarting...");
+        esp_restart();
     }
 
     // TODO: Set up priority correctly
