@@ -14,6 +14,7 @@
 #include "driver/rtc_io.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "commands.h"
 
 static const int RX_BUF_SIZE = 1024;
 
@@ -29,18 +30,7 @@ QueueHandle_t dataQueue = NULL;
 static TimerHandle_t timeoutTimer;
 
 #define queueLength 10
-
-typedef struct
-{
-    const char *command;
-    int waitTimeMs;
-} Command;
-
-typedef enum
-{
-    COMMAND_TYPE_HTTP,
-    COMMAND_TYPE_MQTT
-} CommandType;
+#define COMAND_SLEEP_TIME 15 * 1000
 
 typedef enum
 {
@@ -73,52 +63,6 @@ int sendData(const char *logName, const char *data)
     return txBytes;
 }
 
-Command *getCommands(CommandType type, size_t *outSize)
-{
-    switch (type)
-    {
-    case COMMAND_TYPE_HTTP:
-    {
-        static Command httpCommands[] = {
-            {"AT+SHREQ=?\r\n", 1000},
-            {"AT+SHREQ?\r\n", 1000},
-            {"AT+CNACT=0,1\r\n", 1000},
-            {"AT+SHCONF=\"URL\",\"http://www.httpbin.org\"\r\n", 1000},
-            {"AT+SHCONF=\"BODYLEN\",1024\r\n", 0},
-            {"AT+SHCONF=\"HEADERLEN\",350\r\n", 0},
-            {"AT+SHCONN\r\n", 1000},
-            {"AT+SHSTATE?\r\n", 1000},
-            {"AT+SHREQ=\"http://www.httpbin.org/get\",1\r\n", 10000},
-            {"AT+SHREAD=0,391\r\n", 3000},
-            {"AT+SHDISC\r\n", 0}};
-        *outSize = sizeof(httpCommands) / sizeof(httpCommands[0]);
-        return httpCommands;
-    }
-    case COMMAND_TYPE_MQTT:
-    {
-        static Command mqttCommands[] = {
-            // TODO: - Add correct MQTT commands
-            // These are just chatgpt generated commands
-            {"AT+CMQTTSTART\r\n", 1000},
-            {"AT+CMQTTACCQ=0,\"clientId123\"\r\n", 1000},
-            {"AT+CMQTTCONNECT=0,\"139.162.164.160\",1883\r\n", 5000},
-            {"AT+CMQTTTOPIC=0,22\r\n", 100},
-            {"example/topic/path\r\n", 100},
-            {"AT+CMQTTPAYLOAD=0,14\r\n", 100},
-            {"{\"key\":\"value\"}\r\n", 100},
-            {"AT+CMQTTPUB=0,1,60\r\n", 5000},
-            {"AT+CMQTTDISC=0,60\r\n", 1000},
-            {"AT+CMQTTSTOP\r\n", 1000}};
-        *outSize = sizeof(mqttCommands) / sizeof(mqttCommands[0]);
-        return mqttCommands;
-    }
-    default:
-    {
-        *outSize = 0;
-        return NULL;
-    }
-    }
-}
 
 static void processCommands(const char *taskTag, Command *commands, size_t commandCount, QueueHandle_t sendControlQueue)
 {
@@ -218,7 +162,7 @@ void timeout_callback(TimerHandle_t xTimer)
 
 static void controller_task(void *arg)
 {
-    timeoutTimer = xTimerCreate("TimeoutTimer", pdMS_TO_TICKS(15000), pdFALSE, NULL, timeout_callback);
+    timeoutTimer = xTimerCreate("TimeoutTimer", pdMS_TO_TICKS(COMAND_SLEEP_TIME), pdFALSE, NULL, timeout_callback);
     if (timeoutTimer != NULL)
     {
         xTimerStart(timeoutTimer, portMAX_DELAY);
@@ -232,7 +176,7 @@ static void controller_task(void *arg)
         uint8_t *receivedData = NULL; // Pointer to received data
         if (xQueueReceive(receiveMsgQueue, &receivedData, portMAX_DELAY) == pdTRUE)
         {
-            if (receivedData != NULL)
+            if (receivedData == NULL)
             {
                 continue;
             }
@@ -273,6 +217,8 @@ static void rx_task(void *arg)
         return;
     }
 
+    ESP_LOGI(RX_TASK_TAG, "Starting RX task");
+
     while (1)
     {
         const int rxBytes = uart_read_bytes(UART_NUM_1, data, RX_BUF_SIZE, 1000 / portTICK_PERIOD_MS);
@@ -283,9 +229,7 @@ static void rx_task(void *arg)
             ESP_LOGI(RX_TASK_TAG, "Error reading data");
             continue;
         }
-
-        if (rxBytes < 1)
-        {
+        if (rxBytes == 0) {
             continue;
         }
 
@@ -347,5 +291,5 @@ void app_main(void)
     xTaskCreate(rx_task, "uart_rx_task", 1024 * 2, NULL, configMAX_PRIORITIES - 1, NULL);
     xTaskCreate(tx_task, "uart_tx_task", 1024 * 2, NULL, configMAX_PRIORITIES - 2, NULL);
     xTaskCreate(controller_task, "controller_task", 1024 * 2, NULL, configMAX_PRIORITIES - 3, NULL);
-    xTaskCreate(deep_sleep_task, "deep_sleep_task", 1024 * 2, NULL, configMAX_PRIORITIES - 2, NULL);
+    xTaskCreate(deep_sleep_task, "deep_sleep_task", 1024 * 2, NULL, configMAX_PRIORITIES - 5, NULL);
 }
