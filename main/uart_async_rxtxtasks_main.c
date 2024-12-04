@@ -278,13 +278,10 @@ static void rx_task(void *arg) {
 
     buf[rxBytes] = 0; // Null-terminate the received data
 
-    uint8_t *queueData = (uint8_t *)malloc(rxBytes + 1);
+    // uint8_t *queueData = (uint8_t *)malloc(rxBytes + 1);
 
-    if (queueData != NULL) {
-      if (xQueueSend(receiveMsgQueue, &buf, portMAX_DELAY) != pdPASS) {
-        ESP_LOGE(RX_TASK_TAG, "Failed to send data to queue");
-        free(queueData);
-      }
+    if (xQueueSend(receiveMsgQueue, &buf, portMAX_DELAY) != pdPASS) {
+      ESP_LOGE(RX_TASK_TAG, "Failed to send data to queue");
     }
   }
 }
