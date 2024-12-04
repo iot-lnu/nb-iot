@@ -24,8 +24,8 @@
 static const int RX_BUF_SIZE = 1024;
 
 // These pins are for the heltec lora 32 v2
-#define TXD_PIN (GPIO_NUM_1)
-#define RXD_PIN (GPIO_NUM_3)
+#define TXD_PIN (GPIO_NUM_12)
+#define RXD_PIN (GPIO_NUM_13)
 
 QueueHandle_t sendControlQueue = NULL;
 QueueHandle_t sleepQueue = NULL;
@@ -65,67 +65,6 @@ int sendData(const char *logName, const char *data) {
   ESP_LOGI(logName, "Wrote %d bytes, data: %s", txBytes, data);
 
   return txBytes;
-}
-
-Command *getCommands(CommandType type, size_t *outSize) {
-  switch (type) {
-  case COMMAND_TYPE_HTTP: {
-    static Command httpCommands[] = {
-        // {"AT+SHREQ=?\r\n", 1000},
-        // {"AT+SHREQ?\r\n", 1000},
-        {"AT+CNACT=0,1\r\n", 1000},
-        {"AT+SHCONF=\"URL\",\"http://www.httpbin.org\"\r\n", 1000},
-        {"AT+SHCONF=\"BODYLEN\",1024\r\n", 0},
-        {"AT+SHCONF=\"HEADERLEN\",350\r\n", 0},
-        {"AT+SHCONN\r\n", 1000},
-        {"AT+SHSTATE?\r\n", 1000},
-        {"AT+SHREQ=\"http://www.httpbin.org/get\",1\r\n", 10000},
-        {"AT+SHREAD=0,391\r\n", 3000},
-        {"AT+SHDISC\r\n", 0}};
-    *outSize = sizeof(httpCommands) / sizeof(httpCommands[0]);
-    return httpCommands;
-  }
-  case COMMAND_TYPE_MQTT: {
-    static Command mqttCommands[] = {
-
-        {"AT+SHREQ=?\r\n", 1000},
-        {"AT+SHREQ?\r\n", 1000},
-        {"AT+CNACT=0,1\r\n", 1000},
-
-        {"AT+SMCONF=\"URL\",139.162.164.160,1883\r\n",
-         1000}, // Set up MQTT server URL and port
-
-        {"AT+SMCONF=\"USERNAME\",\"isnisn\"\r\n",
-         1000}, // Set the MQTT username
-        {"AT+SMCONF=\"PASSWORD\",\"EKDXc5aP\"\r\n",
-         1000}, // Set the MQTT password
-
-        {"AT+SMCONF=\"KEEPTIME\",60\r\n", 1000},          // Set keep-alive time
-        {"AT+SMCONF=\"CLEANSS\",1\r\n", 1000},            // Clear session
-        {"AT+SMCONF=\"CLIENTID\",\"simmqtt\"\r\n", 1000}, // Set the client ID
-
-        {"AT+SMCONN\r\n", 5000}, // Connect to MQTT server
-        // Optionally, include handling of connection response
-
-        {"AT+SMSUB=\"information\",1\r\n",
-         1000}, // Subscribe to the 'information' topic
-        {"AT+SMPUB=\"information\",5,1,1\r\n", 1000},
-        {">hello\r\n",
-         1000}, // Publish the message 'hello' to the 'information' topic
-
-        {"AT+SMUNSUB=\"information\"\r\n",
-         1000},                    // Unsubscribe from the 'information' topic
-        {"AT+SMDISC\r\n", 1000},   // Disconnect from MQTT
-        {"AT+CNACT=0,0\r\n", 1000} // Disconnect from the network
-    };
-    *outSize = sizeof(mqttCommands) / sizeof(mqttCommands[0]);
-    return mqttCommands;
-  }
-  default: {
-    *outSize = 0;
-    return NULL;
-  }
-  }
 }
 
 static void processCommands(const char *taskTag, Command *commands,
