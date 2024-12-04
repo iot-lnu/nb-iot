@@ -218,46 +218,6 @@ void timeout_callback(TimerHandle_t xTimer) {
   xTimerReset(timeoutTimer, portMAX_DELAY);
 }
 
-static void controller_task(void *arg) {
-  timeoutTimer = xTimerCreate("TimeoutTimer", pdMS_TO_TICKS(15000), pdFALSE,
-                              NULL, timeout_callback);
-  if (timeoutTimer != NULL) {
-    xTimerStart(timeoutTimer, portMAX_DELAY);
-  }
-
-  // At task startup, send the first next command
-  send_next_command();
-
-  while (1) {
-    uint8_t *receivedData = NULL; // Pointer to received data
-    if (xQueueReceive(receiveMsgQueue, &receivedData, portMAX_DELAY) ==
-        pdTRUE) {
-      if (receivedData != NULL) {
-        continue;
-      }
-
-      ESP_LOGI("Controller", "Received data: %s", receivedData);
-
-      // Reset the timer since data was received
-      xTimerReset(timeoutTimer, portMAX_DELAY);
-
-      // If the data contains a OK in the string, send COMMAND_ACTION_NEXT
-      if (strstr((const char *)receivedData, "OK") != NULL) {
-        vTaskDelay(500 / portTICK_PERIOD_MS);
-        send_next_command();
-      }
-      // If the data contains ERROR in the string, send COMMAND_ACTION_RESTART
-      else if (strstr((const char *)receivedData, "ERROR") != NULL) {
-        // wait for 0.5 seconds before sending the reset command
-        vTaskDelay(500 / portTICK_PERIOD_MS);
-        send_reset_command();
-      }
-
-      free(receivedData);
-    }
-  }
-}
-
 static void controller_task(void *arg)
 {
     timeoutTimer = xTimerCreate("TimeoutTimer", pdMS_TO_TICKS(COMAND_SLEEP_TIME), pdFALSE, NULL, timeout_callback);
